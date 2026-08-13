@@ -119,6 +119,33 @@ Evaluation runs on one device because its parameters are synchronized.  The
 existing parameter checkpoints are written from one replica and remain usable
 by both single- and multi-GPU runs.
 
+Submit a two-GH200 smoke test on Helios with:
+
+```sh
+mkdir -p slurm_logs
+sbatch scripts/helios_multigpu_smoke.sbatch
+```
+
+The same script can use an existing interactive two-GPU allocation without
+submitting another job:
+
+```sh
+bash scripts/helios_multigpu_smoke.sbatch
+```
+
+On Helios, submit the width-512 four-GH200 grid (depths 4 through 64 and seeds
+1 through 3, 27 runs total) with:
+
+```sh
+bash scripts/submit_helios_w512_4gpu.sh
+```
+
+Each array task occupies one four-GPU node.  The three seed arrays are linked
+with `afterok` dependencies, while all nine architectures within a seed may run
+in parallel.  Completed tasks are safe to resubmit because they exit when their
+run directory contains `COMPLETE`; an incomplete directory is never
+overwritten automatically.
+
 ## Exploratory scaling plots
 
 The plotting script uses [`wandb-cache`](https://github.com/BartekCupial/wandb-cache) to cache run metadata and complete training histories as Parquet. It plots every available intermediate observation from fitting and held-out runs, excludes smoke runs, and does not fit or extrapolate a scaling law.
