@@ -15,9 +15,13 @@ set -euo pipefail
 
 REPO_ROOT=/net/scratch/hscra/plgrid/plgbartekcupial/crl-scaling-laws
 NUM_DEVICES="${CRL_NUM_DEVICES:-2}"
+ENV_ID="${CRL_ENV_ID:-humanoid}"
+EVAL_ENV_ID="${CRL_EVAL_ENV_ID:-${ENV_ID}}"
+ENV_CODE="${CRL_ENV_CODE:-${ENV_ID}}"
+DEPTH="${CRL_DEPTH:-32}"
 JOB_LABEL="${SLURM_JOB_ID:-interactive}"
 ATTEMPT_LABEL="${CRL_SMOKE_TAG:-$(date +%Y%m%d-%H%M%S)}"
-RUN_NAME="helios_${NUM_DEVICES}gpu_simba_w512_d32_smoke_${JOB_LABEL}_${ATTEMPT_LABEL}"
+RUN_NAME="${ENV_CODE}_${NUM_DEVICES}gpu_simba_w512_d${DEPTH}_smoke_${JOB_LABEL}_${ATTEMPT_LABEL}"
 RUN_DIR="${REPO_ROOT}/runs/helios_multigpu_smoke/${RUN_NAME}"
 
 module purge
@@ -51,8 +55,8 @@ PY
 echo "Run directory: ${RUN_DIR}"
 /usr/bin/time -f $'END-TO-END WALL TIME: %e seconds' \
   uv run --no-sync train.py \
-    --env-id humanoid \
-    --eval-env-id humanoid \
+    --env-id "${ENV_ID}" \
+    --eval-env-id "${EVAL_ENV_ID}" \
     --seed 1 \
     --num-devices "${NUM_DEVICES}" \
     --episode-length 1000 \
@@ -60,12 +64,12 @@ echo "Run directory: ${RUN_DIR}"
     --num-eval-envs 128 \
     --critic-network-width 512 \
     --actor-network-width 512 \
-    --critic-depth 32 \
-    --actor-depth 32 \
+    --critic-depth "${DEPTH}" \
+    --actor-depth "${DEPTH}" \
     --critic-skip-connections 4 \
     --actor-skip-connections 4 \
     --use-simba 1 \
-    --batch-size 256 \
+    --batch-size 512 \
     --num-sgd-batches-per-training-step 800 \
     --training-steps-multiplier 1 \
     --num-episodes-per-env 1 \

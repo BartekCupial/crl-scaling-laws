@@ -146,6 +146,20 @@ in parallel.  Completed tasks are safe to resubmit because they exit when their
 run directory contains `COMPLETE`; an incomplete directory is never
 overwritten automatically.
 
+The three-environment extension adds Humanoid, Ant U4-Maze, and Arm Push Hard.
+It submits three four-GPU smoke tests followed by 81 scientific runs (nine
+width-512 depths and three seeds per environment):
+
+```sh
+bash scripts/submit_helios_all_envs_w512_4gpu.sh
+```
+
+The Ant U4-Maze runs use 400M environment steps and Arm Push Hard uses 100M,
+matching the task horizons shown for the paper's depth experiments.  Humanoid
+keeps the longer parameter-aware 400M--842M scaling-law horizons.  All three
+tasks use the paper's shared global batch size of 512; four-GPU training shards
+this into 128 local samples per device while retaining a 512-way InfoNCE loss.
+
 ## Exploratory scaling plots
 
 The plotting script uses [`wandb-cache`](https://github.com/BartekCupial/wandb-cache) to cache run metadata and complete training histories as Parquet. It plots every available intermediate observation from fitting and held-out runs, excludes smoke runs, and does not fit or extrapolate a scaling law.
