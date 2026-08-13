@@ -3,15 +3,15 @@ name = "scaling-crl"
 version = "0.1.0"
 description = "1000 Layer Networks for Self-Supervised RL: Scaling Depth Can Enable New Goal-Reaching Capabilities"
 readme = "README.md"
-requires-python = "==3.10.*"
+requires-python = ">=3.10,<3.12"
 dependencies = [
     "numpy==1.26.4",
     "jax==0.4.23",
     "jaxlib==0.4.23+cuda12.cudnn89; platform_system == 'Linux'",
-    "nvidia-cudnn-cu11>=8.9,<9.0; platform_system == 'Linux'",
-    "nvidia-cuda-cupti-cu12>=12.4; platform_system == 'Linux'",
-    "nvidia-cuda-runtime-cu12>=12.3; platform_system == 'Linux'",
-    "nvidia-cusolver-cu12>=11.7.3.90; platform_system == 'Linux'",
+    "nvidia-cudnn-cu11>=8.9,<9.0; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "nvidia-cuda-cupti-cu12>=12.4; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "nvidia-cuda-runtime-cu12>=12.3; platform_system == 'Linux' and platform_machine == 'x86_64'",
+    "nvidia-cusolver-cu12>=11.7.3.90; platform_system == 'Linux' and platform_machine == 'x86_64'",
     "jaxlib==0.4.23; platform_system != 'Linux'",
     "flax==0.7.4",
     "tyro",

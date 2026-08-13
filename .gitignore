@@ -9,4 +9,4 @@ uv.lock
 *.venv/
 /runs/*
 /.wandb_cache/
-/figures/scaling_laws/
+/figures/scaling_laws*/

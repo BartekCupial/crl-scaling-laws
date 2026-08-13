@@ -24,6 +24,7 @@ from evaluator import CrlEvaluator
 from buffer import TrajectoryUniformSamplingQueue
 from brax_compat import apply_brax_compatibility_patch
 from simba import EncoderSimba
+from multigpu import contrastive_logits_and_positives, synchronize_gradients
 
 apply_brax_compatibility_patch()
 
@@ -33,6 +34,8 @@ class Args:
     seed: int = 1000
     torch_deterministic: bool = True
     cuda: bool = True
+    num_devices: int = 1
+    """Number of local GPUs used by one synchronous data-parallel run."""
     track: bool = True
     wandb_project_name: str = "crl_scaling_laws"
     wandb_entity: str = "ideas-ncbr"
@@ -280,6 +283,17 @@ if __name__ == "__main__":
     args = tyro.cli(Args)
     if args.use_simba not in (0, 1):
         raise ValueError("--use-simba must be 0 (residual) or 1 (SimBa)")
+    if args.num_devices < 1:
+        raise ValueError("--num-devices must be positive")
+    if args.num_devices > jax.local_device_count():
+        raise ValueError(
+            f"--num-devices={args.num_devices} requested, but JAX exposes only "
+            f"{jax.local_device_count()} local device(s): {jax.local_devices()}"
+        )
+    if args.num_envs % args.num_devices:
+        raise ValueError("--num-envs must be divisible by --num-devices")
+    if args.batch_size % args.num_devices:
+        raise ValueError("--batch-size must be divisible by --num-devices")
     if bool(args.resume_checkpoint) != (args.resume_env_steps > 0):
         raise ValueError("--resume-checkpoint and positive --resume-env-steps must be used together")
     if not 0 <= args.resume_epoch < args.num_epochs:
@@ -292,6 +306,14 @@ if __name__ == "__main__":
     print("\n", flush=True)
 
     args.env_steps_per_actor_step = args.num_envs * args.unroll_length
+    local_num_envs = args.num_envs // args.num_devices
+    local_batch_size = args.batch_size // args.num_devices
+    data_parallel_axis = "devices"
+    print(
+        f"data_parallel: devices={args.num_devices}, "
+        f"local_num_envs={local_num_envs}, local_batch_size={local_batch_size}",
+        flush=True,
+    )
     print(f"env_steps_per_actor_step: {args.env_steps_per_actor_step}", flush=True)
 
     args.num_prefill_env_steps = args.min_replay_size * args.num_envs
@@ -533,7 +555,11 @@ if __name__ == "__main__":
     obs_size = env.observation_size
     action_size = env.action_size
     env_keys = jax.random.split(env_key, args.num_envs)
-    env_state = jax.jit(env.reset)(env_keys)
+    if args.num_devices > 1:
+        env_keys = env_keys.reshape((args.num_devices, local_num_envs, -1))
+        env_state = jax.pmap(env.reset, axis_name=data_parallel_axis)(env_keys)
+    else:
+        env_state = jax.jit(env.reset)(env_keys)
     env.step = jax.jit(env.step)
     
     print(f"obs_size: {obs_size}, action_size: {action_size}", flush=True)
@@ -666,6 +692,11 @@ if __name__ == "__main__":
             flush=True,
         )
 
+    if args.num_devices > 1:
+        training_state = jax.device_put_replicated(
+            training_state, jax.local_devices()[:args.num_devices]
+        )
+
     #Replay Buffer
     dummy_obs = jnp.zeros((obs_size,))
     dummy_action = jnp.zeros((action_size,))
@@ -692,12 +723,18 @@ if __name__ == "__main__":
             TrajectoryUniformSamplingQueue(
                 max_replay_size=args.max_replay_size,
                 dummy_data_sample=dummy_transition,
-                sample_batch_size=args.batch_size,
-                num_envs=args.num_envs,
+                sample_batch_size=local_batch_size,
+                num_envs=local_num_envs,
                 episode_length=args.episode_length,
             )
         )
-    buffer_state = jax.jit(replay_buffer.init)(buffer_key)
+    if args.num_devices > 1:
+        buffer_keys = jax.random.split(buffer_key, args.num_devices)
+        buffer_state = jax.pmap(
+            replay_buffer.init, axis_name=data_parallel_axis
+        )(buffer_keys)
+    else:
+        buffer_state = jax.jit(replay_buffer.init)(buffer_key)
 
     def deterministic_actor_step(training_state, env, env_state, extra_fields):
         means, _ = actor.apply(training_state.actor_state.params, env_state.obs)
@@ -823,7 +860,7 @@ if __name__ == "__main__":
 
     @jax.jit
     def update_actor_and_alpha(transitions, training_state, key):
-        actor_batch_size = args.batch_size
+        actor_batch_size = local_batch_size
         transitions = jax.tree_util.tree_map(
             lambda x: x[:actor_batch_size], 
             transitions
@@ -862,9 +899,15 @@ if __name__ == "__main__":
             return jnp.mean(alpha_loss)
         
         (actorloss, log_prob), actor_grad = jax.value_and_grad(actor_loss, has_aux=True)(training_state.actor_state.params, training_state.critic_state.params, training_state.alpha_state.params['log_alpha'], transitions, key)
+        actor_grad = synchronize_gradients(
+            actor_grad, args.num_devices, data_parallel_axis
+        )
         new_actor_state = training_state.actor_state.apply_gradients(grads=actor_grad)
 
         alphaloss, alpha_grad = jax.value_and_grad(alpha_loss)(training_state.alpha_state.params, log_prob)
+        alpha_grad = synchronize_gradients(
+            alpha_grad, args.num_devices, data_parallel_axis
+        )
         new_alpha_state = training_state.alpha_state.apply_gradients(grads=alpha_grad)
 
         training_state = training_state.replace(actor_state=new_actor_state, alpha_state=new_alpha_state)
@@ -880,7 +923,7 @@ if __name__ == "__main__":
 
     @jax.jit
     def update_critic(transitions, training_state, key):
-        critic_batch_size = args.batch_size
+        critic_batch_size = local_batch_size
         transitions = jax.tree_util.tree_map(
             lambda x: x[:critic_batch_size], 
             transitions
@@ -895,8 +938,10 @@ if __name__ == "__main__":
             g_repr = g_encoder.apply(g_encoder_params, transitions.observation[:, args.obs_dim:])
              
             # InfoNCE
-            logits = -jnp.sqrt(jnp.sum((sa_repr[:, None, :] - g_repr[None, :, :]) ** 2, axis=-1))       # shape = BxB
-            critic_loss = -jnp.mean(jnp.diag(logits) - jax.nn.logsumexp(logits, axis=1))
+            logits, positive_logits = contrastive_logits_and_positives(
+                sa_repr, g_repr, args.num_devices, data_parallel_axis
+            )
+            critic_loss = -jnp.mean(positive_logits - jax.nn.logsumexp(logits, axis=1))
 
             # logsumexp regularisation
             logsumexp = jax.nn.logsumexp(logits + 1e-6, axis=1)
@@ -908,6 +953,7 @@ if __name__ == "__main__":
             return critic_loss, (logsumexp, I, correct, logits_pos, logits_neg)
             
         (loss, (logsumexp, I, correct, logits_pos, logits_neg)), grad = jax.value_and_grad(critic_loss, has_aux=True)(training_state.critic_state.params, transitions, key)
+        grad = synchronize_gradients(grad, args.num_devices, data_parallel_axis)
         new_critic_state = training_state.critic_state.apply_gradients(grads=grad)
         training_state = training_state.replace(critic_state = new_critic_state)
 
@@ -981,11 +1027,13 @@ if __name__ == "__main__":
         transitions = jax.tree_util.tree_map(lambda x: x[permutation], transitions)
         
         # I added this code, so as to ensure len(transitions.observation) is divisible by batch_size
-        num_full_batches = len(transitions.observation) // args.batch_size
-        transitions = jax.tree_util.tree_map(lambda x: x[:num_full_batches * args.batch_size], transitions)
+        num_full_batches = len(transitions.observation) // local_batch_size
+        transitions = jax.tree_util.tree_map(
+            lambda x: x[:num_full_batches * local_batch_size], transitions
+        )
         
         transitions = jax.tree_util.tree_map(
-            lambda x: jnp.reshape(x, (-1, args.batch_size) + x.shape[1:]),
+            lambda x: jnp.reshape(x, (-1, local_batch_size) + x.shape[1:]),
             transitions,
         )
         
@@ -1027,9 +1075,23 @@ if __name__ == "__main__":
 
     key, prefill_key = jax.random.split(key, 2)
 
-    training_state, env_state, buffer_state, _ = prefill_replay_buffer(
-        training_state, env_state, buffer_state, prefill_key
-    )
+    if args.num_devices > 1:
+        prefill_keys = jax.random.split(prefill_key, args.num_devices)
+        training_state, env_state, buffer_state, _ = jax.pmap(
+            prefill_replay_buffer, axis_name=data_parallel_axis
+        )(training_state, env_state, buffer_state, prefill_keys)
+        pmapped_training_epoch = jax.pmap(
+            training_epoch, axis_name=data_parallel_axis
+        )
+    else:
+        training_state, env_state, buffer_state, _ = prefill_replay_buffer(
+            training_state, env_state, buffer_state, prefill_key
+        )
+
+    def unreplicate(value):
+        if args.num_devices == 1:
+            return value
+        return jax.tree_util.tree_map(lambda x: x[0], value)
     
 
     if args.eval_actor == 0:
@@ -1085,7 +1147,15 @@ if __name__ == "__main__":
         t = time.time()
 
         key, epoch_key = jax.random.split(key)
-        training_state, env_state, buffer_state, metrics = training_epoch(training_state, env_state, buffer_state, epoch_key)
+        if args.num_devices > 1:
+            epoch_keys = jax.random.split(epoch_key, args.num_devices)
+            training_state, env_state, buffer_state, metrics = pmapped_training_epoch(
+                training_state, env_state, buffer_state, epoch_keys
+            )
+        else:
+            training_state, env_state, buffer_state, metrics = training_epoch(
+                training_state, env_state, buffer_state, epoch_key
+            )
         
         metrics = jax.tree_util.tree_map(jnp.mean, metrics)
         metrics = jax.tree_util.tree_map(lambda x: x.block_until_ready(), metrics)
@@ -1097,19 +1167,20 @@ if __name__ == "__main__":
         metrics = {
             "training/sps": sps,
             "training/walltime": training_walltime,
-            "training/envsteps": training_state.env_steps.item(),
+            "training/envsteps": unreplicate(training_state).env_steps.item(),
             **{f"training/{name}": value for name, value in metrics.items()},
         }
 
-        metrics = evaluator.run_evaluation(training_state, metrics)
+        metrics = evaluator.run_evaluation(unreplicate(training_state), metrics)
 
         print(f"epoch {ne} out of {args.num_epochs} complete. metrics: {metrics}", flush=True)
 
         if args.checkpoint:
             if ne < 5 or ne >= args.num_epochs - 5 or ne % 10 == 0:
                 # Save current policy and critic params.
-                params = (training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
-                path = f"{save_path}/step_{int(training_state.env_steps)}.pkl"
+                checkpoint_state = unreplicate(training_state)
+                params = (checkpoint_state.alpha_state.params, checkpoint_state.actor_state.params, checkpoint_state.critic_state.params)
+                path = f"{save_path}/step_{int(checkpoint_state.env_steps)}.pkl"
                 save_params(path, params)
         
         if args.track:
@@ -1124,7 +1195,8 @@ if __name__ == "__main__":
     
     if args.checkpoint:
         # Save current policy and critic params.
-        params = (training_state.alpha_state.params, training_state.actor_state.params, training_state.critic_state.params)
+        checkpoint_state = unreplicate(training_state)
+        params = (checkpoint_state.alpha_state.params, checkpoint_state.actor_state.params, checkpoint_state.critic_state.params)
         path = f"{save_path}/final.pkl"
         save_params(path, params)
         
@@ -1159,7 +1231,7 @@ if __name__ == "__main__":
             
         print("Rendering final policy...", flush=True)
         try:
-            render_policy(training_state, save_path)
+            render_policy(unreplicate(training_state), save_path)
         except Exception as e:
             print(f"Error rendering final policy: {e}", flush=True)
         

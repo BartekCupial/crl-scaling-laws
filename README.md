@@ -99,6 +99,26 @@ uv run train.py --env_id "humanoid" --eval_env_id "humanoid" --num_epochs 100 --
 >[!NOTE]
 >If you would like the experiments to be synced to wandb, you should go to `train.py` and replace the default values of `wandb_entity` and `wandb_project_name` (line 34-35 of the `train.py` file) with your particular wandb entity and wandb project name. Alternatively, these two can also be set as hyperparameter flags when running the train script.
 
+### Synchronous multi-GPU training
+
+One run can use multiple local GPUs with `--num-devices 2` or
+`--num-devices 4`.  `num_envs` and `batch_size` remain global and must be
+divisible by the device count.  Environments and replay buffers are sharded,
+model and optimizer state are replicated, and gradients are averaged after
+each update.  The critic gathers goal representations before constructing its
+logits, so a global batch size of 256 still uses 256 contrastive candidates
+rather than one independent 64-way loss per GPU.
+
+```sh
+JAX_PLATFORMS=cuda uv run --no-sync train.py \
+  --num-devices 4 --num-envs 512 --batch-size 256 \
+  --use-simba 1 --env-id humanoid --eval-env-id humanoid
+```
+
+Evaluation runs on one device because its parameters are synchronized.  The
+existing parameter checkpoints are written from one replica and remain usable
+by both single- and multi-GPU runs.
+
 ## Exploratory scaling plots
 
 The plotting script uses [`wandb-cache`](https://github.com/BartekCupial/wandb-cache) to cache run metadata and complete training histories as Parquet. It plots every available intermediate observation from fitting and held-out runs, excludes smoke runs, and does not fit or extrapolate a scaling law.
