@@ -23,7 +23,7 @@ class HeliosWidth512GridTest(unittest.TestCase):
             "#SBATCH --mem=400G",
             "#SBATCH --time=47:59:59",
             "#SBATCH --gres=gpu:4",
-            "#SBATCH --account=plgcontrastivesft-gpu-gh200",
+            "#SBATCH --account=plgllmreasoning-gpu-gh200",
             "#SBATCH --partition=plgrid-gpu-gh200",
         ):
             self.assertIn(directive, text)

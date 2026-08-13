@@ -6,7 +6,7 @@
 #SBATCH --mem=200G
 #SBATCH --time=00:30:00
 #SBATCH --gres=gpu:2
-#SBATCH --account=plgcontrastivesft-gpu-gh200
+#SBATCH --account=plgllmreasoning-gpu-gh200
 #SBATCH --partition=plgrid-gpu-gh200
 #SBATCH --output=slurm_logs/helios-multigpu-smoke-%j.out
 #SBATCH --error=slurm_logs/helios-multigpu-smoke-%j.err
