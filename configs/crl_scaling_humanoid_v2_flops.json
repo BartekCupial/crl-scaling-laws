@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "method": "JAX lowered HLO cost_analysis on one exact actor+critic SGD update and one stochastic rollout actor step",
+  "jax_version": "0.4.23",
+  "jaxlib_version": "0.4.23",
+  "platform": "cpu",
+  "profiler_sha256": "d374b79b6caceecc71d9fb0131fc055dbc885cba63d8c9ff33a2274067002568",
+  "train_sha256": "0edcfe10707c145ae24a2ed3afa3aae1a155a4ea33ebf49d188fa731803c1866",
+  "simba_sha256": "e8e1ed2b663e0cb055b5e2a1fb3e41321e4dbf2073d1a5aabdc71cc433737bfe",
+  "batch_size": 256,
+  "rollout_batch_size": 512,
+  "obs_dim": 268,
+  "goal_dim": 3,
+  "action_size": 17,
+  "scope": "Model training and rollout-policy inference; excludes physics simulation, replay-buffer operations, evaluation, checkpoint I/O, and compilation",
+  "flop_convention": "XLA arithmetic FLOPs (multiply-add is two FLOPs); transcendental operations are reported separately and excluded from FLOPs",
+  "profiles": [
+    {
+      "width": 128,
+      "depth": 4,
+      "sgd_update_flops": 2143440768,
+      "sgd_update_transcendentals": 1351851,
+      "rollout_flops_per_env_step": 218077,
+      "rollout_transcendentals_per_env_step": 730
+    },
+    {
+      "width": 128,
+      "depth": 8,
+      "sgd_update_flops": 4705111040,
+      "sgd_update_transcendentals": 2612907,
+      "rollout_flops_per_env_step": 355437,
+      "rollout_transcendentals_per_env_step": 1246
+    },
+    {
+      "width": 128,
+      "depth": 12,
+      "sgd_update_flops": 7266643968,
+      "sgd_update_transcendentals": 3873963,
+      "rollout_flops_per_env_step": 492797,
+      "rollout_transcendentals_per_env_step": 1762
+    },
+    {
+      "width": 128,
+      "depth": 16,
+      "sgd_update_flops": 9828163584,
+      "sgd_update_transcendentals": 5135019,
+      "rollout_flops_per_env_step": 630156,
+      "rollout_transcendentals_per_env_step": 2278
+    },
+    {
+      "width": 128,
+      "depth": 24,
+      "sgd_update_flops": 14951077888,
+      "sgd_update_transcendentals": 7657131,
+      "rollout_flops_per_env_step": 904876,
+      "rollout_transcendentals_per_env_step": 3310
+    },
+    {
+      "width": 128,
+      "depth": 32,
+      "sgd_update_flops": 20074102784,
+      "sgd_update_transcendentals": 10179243,
+      "rollout_flops_per_env_step": 1179596,
+      "rollout_transcendentals_per_env_step": 4342
+    },
+    {
+      "width": 128,
+      "depth": 48,
+      "sgd_update_flops": 30320289792,
+      "sgd_update_transcendentals": 15223467,
+      "rollout_flops_per_env_step": 1729036,
+      "rollout_transcendentals_per_env_step": 6406
+    },
+    {
+      "width": 128,
+      "depth": 64,
+      "sgd_update_flops": 40566464512,
+      "sgd_update_transcendentals": 20267688,
+      "rollout_flops_per_env_step": 2278476,
+      "rollout_transcendentals_per_env_step": 8470
+    },
+    {
+      "width": 128,
+      "depth": 96,
+      "sgd_update_flops": 61058818048,
+      "sgd_update_transcendentals": 30356136,
+      "rollout_flops_per_env_step": 3377356,
+      "rollout_transcendentals_per_env_step": 12598
+    },
+    {
+      "width": 128,
+      "depth": 128,
+      "sgd_update_flops": 81551130624,
+      "sgd_update_transcendentals": 40444584,
+      "rollout_flops_per_env_step": 4476236,
+      "rollout_transcendentals_per_env_step": 16726
+    },
+    {
+      "width": 128,
+      "depth": 192,
+      "sgd_update_flops": 122535854080,
+      "sgd_update_transcendentals": 60621480,
+      "rollout_flops_per_env_step": 6673996,
+      "rollout_transcendentals_per_env_step": 24982
+    },
+    {
+      "width": 256,
+      "depth": 4,
+      "sgd_update_flops": 8097943552,
+      "sgd_update_transcendentals": 4170155,
+      "rollout_flops_per_env_step": 697180,
+      "rollout_transcendentals_per_env_step": 1370
+    },
+    {
+      "width": 256,
+      "depth": 8,
+      "sgd_update_flops": 18283126784,
+      "sgd_update_transcendentals": 8911275,
+      "rollout_flops_per_env_step": 1234028,
+      "rollout_transcendentals_per_env_step": 2398
+    },
+    {
+      "width": 256,
+      "depth": 12,
+      "sgd_update_flops": 28468203520,
+      "sgd_update_transcendentals": 13652395,
+      "rollout_flops_per_env_step": 1770876,
+      "rollout_transcendentals_per_env_step": 3426
+    },
+    {
+      "width": 256,
+      "depth": 16,
+      "sgd_update_flops": 38653419520,
+      "sgd_update_transcendentals": 18393512,
+      "rollout_flops_per_env_step": 2307724,
+      "rollout_transcendentals_per_env_step": 4454
+    },
+    {
+      "width": 256,
+      "depth": 24,
+      "sgd_update_flops": 59023855616,
+      "sgd_update_transcendentals": 27875752,
+      "rollout_flops_per_env_step": 3381420,
+      "rollout_transcendentals_per_env_step": 6510
+    },
+    {
+      "width": 256,
+      "depth": 32,
+      "sgd_update_flops": 79394291712,
+      "sgd_update_transcendentals": 37357992,
+      "rollout_flops_per_env_step": 4455116,
+      "rollout_transcendentals_per_env_step": 8566
+    },
+    {
+      "width": 256,
+      "depth": 48,
+      "sgd_update_flops": 120135155712,
+      "sgd_update_transcendentals": 56322472,
+      "rollout_flops_per_env_step": 6602508,
+      "rollout_transcendentals_per_env_step": 12678
+    },
+    {
+      "width": 256,
+      "depth": 64,
+      "sgd_update_flops": 160875872256,
+      "sgd_update_transcendentals": 75286952,
+      "rollout_flops_per_env_step": 8749901,
+      "rollout_transcendentals_per_env_step": 16790
+    },
+    {
+      "width": 256,
+      "depth": 96,
+      "sgd_update_flops": 242357813248,
+      "sgd_update_transcendentals": 113215912,
+      "rollout_flops_per_env_step": 13044685,
+      "rollout_transcendentals_per_env_step": 25014
+    },
+    {
+      "width": 256,
+      "depth": 128,
+      "sgd_update_flops": 323839524864,
+      "sgd_update_transcendentals": 151144864,
+      "rollout_flops_per_env_step": 17339444,
+      "rollout_transcendentals_per_env_step": 33238
+    },
+    {
+      "width": 512,
+      "depth": 4,
+      "sgd_update_flops": 31548985344,
+      "sgd_update_transcendentals": 14918571,
+      "rollout_flops_per_env_step": 2441820,
+      "rollout_transcendentals_per_env_step": 2650
+    },
+    {
+      "width": 512,
+      "depth": 8,
+      "sgd_update_flops": 72167784448,
+      "sgd_update_transcendentals": 33304488,
+      "rollout_flops_per_env_step": 4564076,
+      "rollout_transcendentals_per_env_step": 4702
+    },
+    {
+      "width": 512,
+      "depth": 12,
+      "sgd_update_flops": 112786735104,
+      "sgd_update_transcendentals": 51690408,
+      "rollout_flops_per_env_step": 6686332,
+      "rollout_transcendentals_per_env_step": 6754
+    },
+    {
+      "width": 512,
+      "depth": 16,
+      "sgd_update_flops": 153405652992,
+      "sgd_update_transcendentals": 70076328,
+      "rollout_flops_per_env_step": 8808589,
+      "rollout_transcendentals_per_env_step": 8806
+    },
+    {
+      "width": 512,
+      "depth": 24,
+      "sgd_update_flops": 234643718144,
+      "sgd_update_transcendentals": 106848168,
+      "rollout_flops_per_env_step": 13053101,
+      "rollout_transcendentals_per_env_step": 12910
+    },
+    {
+      "width": 512,
+      "depth": 32,
+      "sgd_update_flops": 315881422848,
+      "sgd_update_transcendentals": 143620000,
+      "rollout_flops_per_env_step": 17297604,
+      "rollout_transcendentals_per_env_step": 17014
+    }
+  ]
+}

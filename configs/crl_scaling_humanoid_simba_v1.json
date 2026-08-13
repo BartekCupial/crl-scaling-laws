@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "description": "One-seed Humanoid CRL scaling pilot with SimBa state-action and goal encoders and a residual actor, ordered from cheapest to most expensive.",
+  "runner": [
+    "uv",
+    "run",
+    "--no-sync",
+    "train.py"
+  ],
+  "run_root": "runs/scaling_laws",
+  "fixed_args": {
+    "env_id": "humanoid",
+    "eval_env_id": "humanoid",
+    "seed": 2,
+    "episode_length": 1000,
+    "num_envs": 512,
+    "num_eval_envs": 128,
+    "critic_network_width": 256,
+    "actor_network_width": 256,
+    "actor_skip_connections": 4,
+    "critic_skip_connections": 4,
+    "use_simba": 1,
+    "batch_size": 256,
+    "num_sgd_batches_per_training_step": 800,
+    "training_steps_multiplier": 1,
+    "num_episodes_per_env": 1,
+    "unroll_length": 62,
+    "min_replay_size": 1000,
+    "max_replay_size": 10000,
+    "actor_lr": 0.0003,
+    "critic_lr": 0.0003,
+    "alpha_lr": 0.0003,
+    "gamma": 0.99,
+    "logsumexp_penalty_coeff": 0.1,
+    "entropy_param": 0.5,
+    "eval_actor": 0,
+    "expl_actor": 1,
+    "use_relu": 0,
+    "track": true,
+    "wandb_entity": "ideas-ncbr",
+    "wandb_project_name": "crl_scaling_laws",
+    "wandb_mode": "online",
+    "capture_vis": false,
+    "checkpoint": true
+  },
+  "stages": {
+    "smoke": {
+      "total_env_steps": 1000000,
+      "num_epochs": 5,
+      "wandb_group": "humanoid_simba_smoke_v1_s2",
+      "run_name_template": "humanoid_simba_d{depth:03d}_s2_smoke1m"
+    },
+    "main": {
+      "total_env_steps": 100000000,
+      "num_epochs": 100,
+      "wandb_group": "humanoid_simba_online_v1_s2",
+      "run_name_template": "humanoid_simba_d{depth:03d}_s2_100m"
+    }
+  },
+  "grid": [
+    {
+      "id": "S04",
+      "stage": "smoke",
+      "depth": 4
+    },
+    {
+      "id": "S08",
+      "stage": "smoke",
+      "depth": 8
+    },
+    {
+      "id": "S16",
+      "stage": "smoke",
+      "depth": 16
+    },
+    {
+      "id": "S32",
+      "stage": "smoke",
+      "depth": 32
+    },
+    {
+      "id": "S64",
+      "stage": "smoke",
+      "depth": 64
+    },
+    {
+      "id": "M04",
+      "stage": "main",
+      "depth": 4
+    },
+    {
+      "id": "M08",
+      "stage": "main",
+      "depth": 8
+    },
+    {
+      "id": "M16",
+      "stage": "main",
+      "depth": 16
+    },
+    {
+      "id": "M32",
+      "stage": "main",
+      "depth": 32
+    },
+    {
+      "id": "M64",
+      "stage": "heldout",
+      "depth": 64
+    }
+  ]
+}

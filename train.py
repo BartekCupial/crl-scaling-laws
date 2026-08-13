@@ -1,4 +1,3 @@
-import os
 import jax
 import flax
 import tyro
@@ -23,6 +22,10 @@ from brax.io import html
 
 from evaluator import CrlEvaluator
 from buffer import TrajectoryUniformSamplingQueue
+from brax_compat import apply_brax_compatibility_patch
+from simba import EncoderSimba
+
+apply_brax_compatibility_patch()
 
 @dataclass
 class Args:
@@ -31,14 +34,24 @@ class Args:
     torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
-    wandb_project_name: str = "clean_JaxGCRL_test"
-    wandb_entity: str = 'wang-kevin3290-princeton-university'
+    wandb_project_name: str = "crl_scaling_laws"
+    wandb_entity: str = "ideas-ncbr"
     wandb_mode: str = 'offline'
     wandb_dir: str = '.'
     wandb_group: str = '.'
     capture_vis: bool = True
     vis_length: int = 1000
     checkpoint: bool = True
+    resume_checkpoint: str = ""
+    """Parameter-only checkpoint to warm-resume after an interrupted legacy run."""
+    resume_env_steps: int = 0
+    """Environment-step counter represented by resume_checkpoint."""
+    resume_epoch: int = 0
+    """First epoch index to execute when warm-resuming."""
+    wandb_step_offset: int = 0
+    """Offset for W&B steps when appending after observations newer than a checkpoint."""
+    wandb_run_id: str = ""
+    """Existing W&B run ID to append to when warm-resuming."""
 
     #environment specific arguments
     env_id: str = "humanoid" # "ant_big_maze" "humanoid_u_maze" "arm_binpick_hard"
@@ -47,6 +60,7 @@ class Args:
     obs_dim: int = 0
     goal_start_idx: int = 0
     goal_end_idx: int = 0
+    use_simba: int = 0
 
     # Algorithm specific arguments
     total_env_steps: int = 100000000 # 50000000
@@ -264,6 +278,12 @@ def save_params(path: str, params: Any):
 if __name__ == "__main__":
 
     args = tyro.cli(Args)
+    if args.use_simba not in (0, 1):
+        raise ValueError("--use-simba must be 0 (residual) or 1 (SimBa)")
+    if bool(args.resume_checkpoint) != (args.resume_env_steps > 0):
+        raise ValueError("--resume-checkpoint and positive --resume-env-steps must be used together")
+    if not 0 <= args.resume_epoch < args.num_epochs:
+        raise ValueError("--resume-epoch must be in [0, num_epochs)")
     
     # Print every arg
     print("Arguments:", flush=True)
@@ -283,7 +303,8 @@ if __name__ == "__main__":
     args.num_training_steps_per_epoch = (args.total_env_steps - args.num_prefill_env_steps) // (args.num_epochs * args.env_steps_per_actor_step)
     print(f"num_training_steps_per_epoch: {args.num_training_steps_per_epoch}", flush=True)
     
-    run_name = f"{args.env_id}{'_' + args.eval_env_id if args.eval_env_id else ''}_{args.batch_size}_{args.total_env_steps}_nenvs:{args.num_envs}_criticwidth:{args.critic_network_width}_actorwidth:{args.actor_network_width}_criticdepth:{args.critic_depth}_actordepth:{args.actor_depth}_actorskip:{args.actor_skip_connections}_criticskip:{args.critic_skip_connections}_{args.seed}"
+    default_run_name = f"{args.env_id}{'_' + args.eval_env_id if args.eval_env_id else ''}_{args.batch_size}_{args.total_env_steps}_nenvs:{args.num_envs}_criticwidth:{args.critic_network_width}_actorwidth:{args.actor_network_width}_criticdepth:{args.critic_depth}_actordepth:{args.actor_depth}_actorskip:{args.actor_skip_connections}_criticskip:{args.critic_skip_connections}_{args.seed}"
+    run_name = args.exp_name if args.exp_name != "train" else default_run_name
     print(f"run_name: {run_name}", flush=True)
     
     if args.track:
@@ -301,6 +322,8 @@ if __name__ == "__main__":
             name=run_name,
             monitor_gym=True,
             save_code=True,
+            id=args.wandb_run_id or None,
+            resume="must" if args.wandb_run_id else None,
         )
 
         if args.wandb_mode == 'offline':
@@ -309,10 +332,8 @@ if __name__ == "__main__":
         
     if args.checkpoint:
         from pathlib import Path
-        from datetime import datetime
-        short_run_name = f"runs/{args.env_id}_{args.seed}_{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        save_path = Path(args.wandb_dir) / Path(short_run_name)
-        os.mkdir(path=save_path)
+        save_path = Path(args.wandb_dir) / "checkpoints"
+        save_path.mkdir(parents=True, exist_ok=bool(args.resume_checkpoint))
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -527,7 +548,7 @@ if __name__ == "__main__":
         eval_env,
         episode_length=args.episode_length,
     )
-    eval_env_keys = jax.random.split(eval_env_key, args.num_envs)
+    eval_env_keys = jax.random.split(eval_env_key, args.num_eval_envs)
     eval_env_state = jax.jit(eval_env.reset)(eval_env_keys)
     eval_env.step = jax.jit(eval_env.step)
 
@@ -541,11 +562,54 @@ if __name__ == "__main__":
         tx=optax.adam(learning_rate=args.actor_lr)
     )
 
-    # Critic
-    sa_encoder = SA_encoder(network_width=args.critic_network_width, network_depth=args.critic_depth, skip_connections=args.critic_skip_connections, use_relu=args.use_relu)
-    sa_encoder_params = sa_encoder.init(sa_key, np.ones([1, args.obs_dim]), np.ones([1, action_size]))
-    g_encoder = G_encoder(network_width=args.critic_network_width, network_depth=args.critic_depth, skip_connections=args.critic_skip_connections, use_relu=args.use_relu)
-    g_encoder_params = g_encoder.init(g_key, np.ones([1, args.goal_end_idx - args.goal_start_idx]))
+    # Critic. SimBa replaces the state-action and goal representation encoders;
+    # the actor stays unchanged to match the original use_simba experiments.
+    if args.use_simba:
+        print("Using SimBa critic encoders", flush=True)
+        sa_encoder = EncoderSimba(
+            network_width=args.critic_network_width,
+            network_depth=args.critic_depth,
+            skip_connections=args.critic_skip_connections,
+            use_relu=bool(args.use_relu),
+        )
+        sa_encoder_params = sa_encoder.init(
+            sa_key,
+            np.ones([1, args.obs_dim + action_size]),
+        )
+        g_encoder = EncoderSimba(
+            network_width=args.critic_network_width,
+            network_depth=args.critic_depth,
+            skip_connections=args.critic_skip_connections,
+            use_relu=bool(args.use_relu),
+        )
+    else:
+        print("Using residual critic encoders", flush=True)
+        sa_encoder = SA_encoder(
+            network_width=args.critic_network_width,
+            network_depth=args.critic_depth,
+            skip_connections=args.critic_skip_connections,
+            use_relu=args.use_relu,
+        )
+        sa_encoder_params = sa_encoder.init(
+            sa_key,
+            np.ones([1, args.obs_dim]),
+            np.ones([1, action_size]),
+        )
+        g_encoder = G_encoder(
+            network_width=args.critic_network_width,
+            network_depth=args.critic_depth,
+            skip_connections=args.critic_skip_connections,
+            use_relu=args.use_relu,
+        )
+    g_encoder_params = g_encoder.init(
+        g_key,
+        np.ones([1, args.goal_end_idx - args.goal_start_idx]),
+    )
+
+    def apply_sa_encoder(params, state, action):
+        if args.use_simba:
+            return sa_encoder.apply(params, jnp.concatenate([state, action], axis=-1))
+        return sa_encoder.apply(params, state, action)
     
     critic_state = TrainState.create(
         apply_fn=None,
@@ -564,6 +628,21 @@ if __name__ == "__main__":
         params={"log_alpha": log_alpha},
         tx=optax.adam(learning_rate=args.alpha_lr),
     )
+
+    count_params = lambda params: sum(leaf.size for leaf in jax.tree_util.tree_leaves(params))
+    actor_params_count = count_params(actor_state.params)
+    critic_params_count = count_params(critic_state.params)
+    total_trainable_params = actor_params_count + critic_params_count + count_params(alpha_state.params)
+    parameter_metrics = {
+        "model_family": "simba" if args.use_simba else "residual",
+        "actor_params": actor_params_count,
+        "critic_params": critic_params_count,
+        "total_trainable_params": total_trainable_params,
+    }
+    print(f"parameter_metrics: {parameter_metrics}", flush=True)
+    if args.track:
+        wandb.config.update(parameter_metrics, allow_val_change=True)
+        wandb.run.summary.update(parameter_metrics)
     
     # Trainstate
     training_state = TrainingState(
@@ -573,6 +652,19 @@ if __name__ == "__main__":
         critic_state=critic_state,
         alpha_state=alpha_state,
     )
+    if args.resume_checkpoint:
+        alpha_params, actor_params, critic_params = load_params(args.resume_checkpoint)
+        training_state = training_state.replace(
+            env_steps=jnp.asarray(args.resume_env_steps),
+            actor_state=training_state.actor_state.replace(params=actor_params),
+            critic_state=training_state.critic_state.replace(params=critic_params),
+            alpha_state=training_state.alpha_state.replace(params=alpha_params),
+        )
+        print(
+            "WARNING: warm resume restored parameters and env_steps only; optimizer "
+            "moments, replay buffer, environment state, and RNG state are reinitialized.",
+            flush=True,
+        )
 
     #Replay Buffer
     dummy_obs = jnp.zeros((obs_size,))
@@ -653,7 +745,7 @@ if __name__ == "__main__":
         goal = env_state.obs[:, args.obs_dim:]
         
         sa_reprs = jax.vmap(
-            lambda a: sa_encoder.apply(
+            lambda a: apply_sa_encoder(
                 training_state.critic_state.params["sa_encoder"], 
                 state, 
                 a
@@ -752,7 +844,7 @@ if __name__ == "__main__":
             log_prob = log_prob.sum(-1)           # dimension = B
 
             sa_encoder_params, g_encoder_params = critic_params["sa_encoder"], critic_params["g_encoder"]
-            sa_repr = sa_encoder.apply(sa_encoder_params, state, action)
+            sa_repr = apply_sa_encoder(sa_encoder_params, state, action)
             g_repr = g_encoder.apply(g_encoder_params, goal)
 
             qf_pi = -jnp.sqrt(jnp.sum((sa_repr - g_repr) ** 2, axis=-1))
@@ -799,7 +891,7 @@ if __name__ == "__main__":
             obs = transitions.observation[:, :args.obs_dim]
             action = transitions.action
             
-            sa_repr = sa_encoder.apply(sa_encoder_params, obs, action)
+            sa_repr = apply_sa_encoder(sa_encoder_params, obs, action)
             g_repr = g_encoder.apply(g_encoder_params, transitions.observation[:, args.obs_dim:])
              
             # InfoNCE
@@ -988,7 +1080,7 @@ if __name__ == "__main__":
     training_walltime = 0
     print('starting training....', flush=True)
     start_time = time.time() 
-    for ne in range(args.num_epochs):
+    for ne in range(args.resume_epoch, args.num_epochs):
         
         t = time.time()
 
@@ -1021,7 +1113,7 @@ if __name__ == "__main__":
                 save_params(path, params)
         
         if args.track:
-            wandb.log(metrics, step=ne)
+            wandb.log(metrics, step=ne + args.wandb_step_offset)
 
             if args.wandb_mode == 'offline':
                 trigger_sync()

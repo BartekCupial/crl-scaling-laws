@@ -99,6 +99,74 @@ uv run train.py --env_id "humanoid" --eval_env_id "humanoid" --num_epochs 100 --
 >[!NOTE]
 >If you would like the experiments to be synced to wandb, you should go to `train.py` and replace the default values of `wandb_entity` and `wandb_project_name` (line 34-35 of the `train.py` file) with your particular wandb entity and wandb project name. Alternatively, these two can also be set as hyperparameter flags when running the train script.
 
+## Exploratory scaling plots
+
+The plotting script uses [`wandb-cache`](https://github.com/BartekCupial/wandb-cache) to cache run metadata and complete training histories as Parquet. It plots every available intermediate observation from fitting and held-out runs, excludes smoke runs, and does not fit or extrapolate a scaling law.
+
+The compute axis reports cumulative XLA-estimated arithmetic FLOPs rather than `parameters × environment steps`. The estimate profiles the exact actor update, contrastive critic update, Adam updates, and stochastic rollout-policy inference for every width/depth pair. A multiply-add counts as two FLOPs. Physics simulation, replay-buffer processing, evaluation, checkpoint I/O, and JIT compilation are excluded. Transcendental operations are exported separately because XLA does not count them as arithmetic FLOPs.
+
+The checked-in profile is generated with:
+
+```bash
+uv run --no-sync python scripts/profile_crl_flops.py
+```
+
+The plotting script rejects the profile if `train.py` or `simba.py` has changed, forcing the FLOP counts to be regenerated rather than silently using stale estimates.
+
+```sh
+uv run --no-sync python scripts/plot_crl_scaling.py --refresh
+```
+
+This writes seven PNG/PDF figures plus tidy CSV/Parquet data under `figures/scaling_laws/`: loss versus estimated FLOPs, parameters, dataset size, parameters at fixed environment-step checkpoints, Chinchilla-style isoFLOP profiles, parameters versus compute, and environment samples versus compute. The default loss is `training/critic_loss`; all axes are logarithmic. The tidy data include cumulative `estimated_training_flops`, `gradient_updates`, per-update FLOPs, separately counted transcendental operations, and `estimated_flops_per_second`.
+
+`training/critic_loss` is a training loss, not a held-out dev loss. To create genuine dev-loss plots, first log a positive dev metric during training and pass its W&B key with `--metric`, for example `--metric eval/dev_critic_loss`. The same loss-versus-parameters and loss-versus-compute figures will then use that metric.
+
+The isoFLOP plot uses log-linear interpolation between observed checkpoints from the same run. It never extrapolates beyond a run's observed compute range and does not fit parabolas or scaling-law curves. Interpolated points are exported to `isoflop_observations.csv`; compute budgets can be changed with `--isoflop-budgets`.
+
+The budget-point analysis first treats every run as a truncated run at each
+compute budget it reaches. Each candidate uses the lowest observed loss up to
+that budget; its loss, environment-sample count, and actual observation compute
+all come from the same checkpoint. The loss-versus-parameters isoFLOP plot shows
+all of these candidates. The loss, parameters, and samples versus compute plots
+then show only the single lowest-loss candidate at each budget, matching the
+empirical analogue of the optimal-point plots in Tuyls et al. without fitting a
+parabola. Candidates are exported to `budget_minimum_observations.csv` and the
+one-per-budget frontier to `budget_optimal_observations.csv`.
+
+The extended v2 plan removes the 1, 2, 3, and 5 PF regimes from the default
+frontier and replaces the fixed 100M-step main horizon with a parameter-aware
+schedule. The 0.95M-parameter model receives 2B environment steps, the
+142M-parameter model receives 400M, and intermediate architectures are
+log-interpolated between those endpoints. Evaluations remain at most about 5M
+environment steps apart. Extended run names contain `_ext`, so completed 100M
+runs are preserved and continue to provide early observations while the longer
+runs are active.
+
+Preview or launch the extended seed-1 queue on four GPUs with:
+
+```sh
+uv run --no-sync python scripts/run_crl_scaling_grid_v2.py --phase seed1 --gpus 0,1,2,3
+uv run --no-sync python scripts/run_crl_scaling_grid_v2.py --phase seed1 --gpus 0,1,2,3 --execute
+```
+
+The latest point from a W&B run whose state is `running` is drawn as an upward triangle on every plot. Finished runs retain their normal circle or stage marker.
+
+While runs are active, refresh the figures every five minutes from a second terminal or tmux pane:
+
+```sh
+watch -n 300 'uv run --no-sync python scripts/plot_crl_scaling.py --refresh'
+```
+
+To inspect only the extended 400M--2B runs and keep their outputs separate from
+the combined figures:
+
+```sh
+uv run --no-sync python scripts/plot_crl_scaling.py --refresh \
+  --run-variant extended --output-dir figures/scaling_laws_ext
+```
+
+Use `--metric <wandb-key>` to inspect another positive-valued metric.
+
 # Citing Scaling CRL 📜
 ```bibtex
 @inproceedings{wang2025,
@@ -187,4 +255,3 @@ uv run train.py --env_id "humanoid" --eval_env_id "humanoid" --num_epochs 100 --
     if (rgba == jp.array([0.5, 0.5, 0.5, 1.0])).all():
     ```
 3. Save the file and rerun the training script. -->
-

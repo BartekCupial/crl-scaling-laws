@@ -8,3 +8,5 @@ uv.lock
 ./envs/__pycache__/*
 *.venv/
 /runs/*
+/.wandb_cache/
+/figures/scaling_laws/

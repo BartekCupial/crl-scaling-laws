@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "description": "Humanoid SimBa scaling grid: 27 empirically feasible width/depth architectures and seeds 1/2/3. Main runs use compute-balancing horizons from 2B environment steps for the smallest model to 400M for the largest model, log-interpolated by parameter count. Depths 256, 384, and 512 at width 128 were removed after failed smoke compilation.",
+  "runner": [
+    "uv",
+    "run",
+    "--no-sync",
+    "train.py"
+  ],
+  "run_root": "runs/scaling_laws_v2",
+  "axes": {
+    "model_families": [
+      "simba"
+    ],
+    "widths": [
+      128,
+      256,
+      512
+    ],
+    "depths_by_width": {
+      "128": [
+        4,
+        8,
+        12,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128,
+        192
+      ],
+      "256": [
+        4,
+        8,
+        12,
+        16,
+        24,
+        32,
+        48,
+        64,
+        96,
+        128
+      ],
+      "512": [
+        4,
+        8,
+        12,
+        16,
+        24,
+        32
+      ]
+    },
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "heldout_architectures": [
+      {
+        "width": 256,
+        "depth": 128
+      },
+      {
+        "width": 512,
+        "depth": 32
+      }
+    ],
+    "scientific_checkpoints": [
+      10000000,
+      30000000,
+      100000000
+    ]
+  },
+  "fixed_args": {
+    "env_id": "humanoid",
+    "eval_env_id": "humanoid",
+    "episode_length": 1000,
+    "num_envs": 512,
+    "num_eval_envs": 128,
+    "actor_skip_connections": 4,
+    "critic_skip_connections": 4,
+    "batch_size": 256,
+    "num_sgd_batches_per_training_step": 800,
+    "training_steps_multiplier": 1,
+    "num_episodes_per_env": 1,
+    "unroll_length": 62,
+    "min_replay_size": 1000,
+    "max_replay_size": 10000,
+    "actor_lr": 0.0003,
+    "critic_lr": 0.0003,
+    "alpha_lr": 0.0003,
+    "gamma": 0.99,
+    "logsumexp_penalty_coeff": 0.1,
+    "entropy_param": 0.5,
+    "eval_actor": 0,
+    "expl_actor": 1,
+    "use_relu": 0,
+    "track": true,
+    "wandb_entity": "ideas-ncbr",
+    "wandb_project_name": "crl_scaling_laws",
+    "wandb_mode": "online",
+    "capture_vis": false,
+    "checkpoint": true
+  },
+  "stages": {
+    "smoke": {
+      "total_env_steps": 1000000,
+      "num_epochs": 5,
+      "wandb_group_template": "humanoid_crl_v2_smoke_s{seed}"
+    },
+    "fit": {
+      "step_schedule": {
+        "type": "log_parameter_interpolation",
+        "small_model_params": 950691,
+        "small_model_steps": 2000000000,
+        "large_model_params": 142167715,
+        "large_model_steps": 400000000,
+        "round_to_steps": 1000000,
+        "max_env_steps_per_epoch": 5000000,
+        "minimum_num_epochs": 100
+      },
+      "wandb_group_template": "humanoid_crl_v2_fit_s{seed}"
+    },
+    "heldout": {
+      "step_schedule": {
+        "type": "log_parameter_interpolation",
+        "small_model_params": 950691,
+        "small_model_steps": 2000000000,
+        "large_model_params": 142167715,
+        "large_model_steps": 400000000,
+        "round_to_steps": 1000000,
+        "max_env_steps_per_epoch": 5000000,
+        "minimum_num_epochs": 100
+      },
+      "wandb_group_template": "humanoid_crl_v2_heldout_s{seed}"
+    }
+  }
+}
